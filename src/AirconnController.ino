@@ -16,6 +16,7 @@
 #include <ButtonDebounce.h>
 
 #include "Aircon.h"
+#include "DisplayController.h"
 
 #include "SPI.h"
 #include "Adafruit_GFX.h"
@@ -25,6 +26,7 @@
 #define TFT_CS 5
 Adafruit_ILI9341 display = Adafruit_ILI9341(TFT_CS, TFT_DC);
 
+DisplayController displayController = DisplayController(&display);
 
 AsyncDelay delay_5s;
 AsyncDelay delay_60s;
@@ -88,74 +90,44 @@ void powerButtonChanged(const int buttonState){
   }
 }
 
-const unsigned char wifiicon[] PROGMEM  ={ // wifi icon
-  0x00, 0xff, 0x00, 0x7e, 0x00, 0x18,0x00, 0x00
-};
 
-void drawWifiIcon(Adafruit_ILI9341 d, int color){
-  d.drawBitmap(1,1,wifiicon,8,8,color);
-}
-
-
-void printLocalTime(Adafruit_ILI9341 d) {
-
-  int startPoint = 20;
-  struct tm timeinfo;
-  if (!getLocalTime(&timeinfo)) {
-    Serial.println("Connection Err");
-    return;
-  }
-
-  d.setCursor(startPoint, 0);
-  d.setTextSize(1);
-  d.print(&timeinfo, "%d/%m/%Y");
-  d.print(" ");
-  d.print(&timeinfo, "%H:%M");
-
-}
-
-void displayWifiStatus(Adafruit_ILI9341 d){
+void displayWifiStatus(){
   if(WiFi.status() == WL_CONNECTED) {
-    drawWifiIcon(display, ILI9341_GREEN);
+    displayController.drawWifiIcon(ILI9341_GREEN);
   }else{
-    drawWifiIcon(display, ILI9341_WHITE);
+    displayController.drawWifiIcon(ILI9341_WHITE);
   }
 }
 
-void displayAirconStatus(Adafruit_ILI9341 d, controlInfo ci){
-    d.setCursor(0, 50);
-    d.setTextColor(0xFFFF, 0x0000);
-    d.setTextSize(2);
+WiFiServer server(80);
 
-    d.setTextColor(ILI9341_RED);
-    d.print("Aircon status: ");
-    d.println(ci.power);
-    
-    d.setCursor(0, 100);
-    d.print("Aircon temp: ");
-    d.print(ci.temperature);
-    d.print((char)247); // degree symbol
-    d.println("C");
-    
-    Serial.print("Aircon status: ");
-    Serial.println(ci.power);
+// Replace with your network credentials
+const char* ssid     = "ESP32-Access-Point";
+const char* password = "123456789";
+
+void ap_init()
+{
+  WiFi.softAP(ssid, password);
+
+  IPAddress IP = WiFi.softAPIP();
+  Serial.print("AP IP address: ");
+  Serial.println(IP);
+  
+  server.begin();
 }
 
 void setup() {
 
-  Serial.begin(115200);
-  Serial.println("setup ");
-
   WiFi.begin("Wokwi-GUEST", "", 6);
   while (WiFi.status() != WL_CONNECTED) {
     Serial.println("trying to connect to GUEST");
-    drawWifiIcon(display, ILI9341_ORANGE);
+    displayController.drawWifiIcon(ILI9341_ORANGE);
     delay(250);
-    drawWifiIcon(display, ILI9341_WHITE);
+    displayController.drawWifiIcon(ILI9341_WHITE);
   }
 
-  drawWifiIcon(display, ILI9341_GREEN);
-  
+  displayController.drawWifiIcon(ILI9341_GREEN);
+
   delay_5s.start(5000, AsyncDelay::MILLIS);
   delay_60s.start(60000, AsyncDelay::MILLIS);
 
@@ -163,8 +135,10 @@ void setup() {
 
   powerStatusButton.setCallback(powerButtonChanged);
 
-  displayAirconStatus(display, retrieveControlInfo());
-  displayWifiStatus(display);
+  controlInfo ci = retrieveControlInfo();
+
+  displayController.displayAirconStatus(ci.power, ci.temperature);
+  displayWifiStatus();
 
   Serial.println("");
   Serial.println("WiFi connected");
@@ -172,22 +146,114 @@ void setup() {
   Serial.println(WiFi.localIP());
 
   configTime(UTC_OFFSET, UTC_OFFSET_DST, NTP_SERVER);
-  printLocalTime(display);
+  struct tm timeinfo;
+  if (!getLocalTime(&timeinfo)) {
+    Serial.println("Connection Err");
+    return;
+  }
+  displayController.printLocalTime(timeinfo);
   
+}
+// Variable to store the HTTP request
+String header;
+
+void enableAPClient(){
+   WiFiClient client = server.available();   // Listen for incoming clients
+
+  if (client) {                             // If a new client connects,
+    Serial.println("New Client.");          // print a message out in the serial port
+    String currentLine = "";                // make a String to hold incoming data from the client
+    while (client.connected()) {            // loop while the client's connected
+      if (client.available()) {             // if there's bytes to read from the client,
+        char c = client.read();             // read a byte, then
+        Serial.write(c);                    // print it out the serial monitor
+        header += c;
+        if (c == '\n') {                    // if the byte is a newline character
+          // if the current line is blank, you got two newline characters in a row.
+          // that's the end of the client HTTP request, so send a response:
+          if (currentLine.length() == 0) {
+            // HTTP headers always start with a response code (e.g. HTTP/1.1 200 OK)
+            // and a content-type so the client knows what's coming, then a blank line:
+            client.println("HTTP/1.1 200 OK");
+            client.println("Content-type:text/html");
+            client.println("Connection: close");
+            client.println();
+            
+            // turns the GPIOs on and off
+            if (header.indexOf("GET /26/on") >= 0) {
+              Serial.println("GPIO 26 on");
+            } else if (header.indexOf("GET /26/off") >= 0) {
+              Serial.println("GPIO 26 off");
+            } else if (header.indexOf("GET /27/on") >= 0) {
+              Serial.println("GPIO 27 on");
+            } else if (header.indexOf("GET /27/off") >= 0) {
+              Serial.println("GPIO 27 off");
+            }
+            
+            // Display the HTML web page
+            client.println("<!DOCTYPE html><html>");
+            client.println("<head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
+            client.println("<link rel=\"icon\" href=\"data:,\">");
+            // CSS to style the on/off buttons 
+            // Feel free to change the background-color and font-size attributes to fit your preferences
+            client.println("<style>html { font-family: Helvetica; display: inline-block; margin: 0px auto; text-align: center;}");
+            client.println(".button { background-color: #4CAF50; border: none; color: white; padding: 16px 40px;");
+            client.println("text-decoration: none; font-size: 30px; margin: 2px; cursor: pointer;}");
+            client.println(".button2 {background-color: #555555;}</style></head>");
+            
+            // Web Page Heading
+            client.println("<body><h1>ESP32 Web Server</h1>");
+            
+            // Display current state, and ON/OFF buttons for GPIO 26  
+            client.println("<p>GPIO 26 - State </p>");
+              client.println("<p><a href=\"/26/off\"><button class=\"button button2\">OFF</button></a></p>");
+               
+            // Display current state, and ON/OFF buttons for GPIO 27  
+            client.println("<p>GPIO 27 - State </p>");
+            // If the output27State is off, it displays the ON button       
+              client.println("<p><a href=\"/27/off\"><button class=\"button button2\">OFF</button></a></p>");
+            client.println("</body></html>");
+            
+            // The HTTP response ends with another blank line
+            client.println();
+            // Break out of the while loop
+            break;
+          } else { // if you got a newline, then clear currentLine
+            currentLine = "";
+          }
+        } else if (c != '\r') {  // if you got anything else but a carriage return character,
+          currentLine += c;      // add it to the end of the currentLine
+        }
+      }
+    }
+    // Clear the header variable
+    header = "";
+    // Close the connection
+    client.stop();
+    Serial.println("Client disconnected.");
+    Serial.println("");
+  }
 }
 
 void loop() {
+
   powerStatusButton.update();
   
   if (delay_5s.isExpired()) {
-    displayWifiStatus(display);
-    displayAirconStatus(display, retrieveControlInfo());
+    displayWifiStatus();
+    controlInfo ci = retrieveControlInfo();
+    displayController.displayAirconStatus(ci.power, ci.temperature);
     delay_5s.repeat(); // Count from when the delay expired, not now
     Serial.println("5s");
   }
 
   if(delay_60s.isExpired()){
-    printLocalTime(display);
+    struct tm timeinfo;
+    if (!getLocalTime(&timeinfo)) {
+      Serial.println("Connection Err");
+      return;
+    }
+    displayController.printLocalTime(timeinfo);
     delay_60s.repeat(); // Count from when the delay expired, not now
   }
 
