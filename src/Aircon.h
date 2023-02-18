@@ -12,16 +12,21 @@ struct controlInfo {
   String f_dir;
 };
 
-const int numberOfZones = 8;
-const String zoneNamesString = "UPSTAIRS;MASTER;MEL;empty;DOWNSTAIRS;GEST1;GEST2;EDU";
+const int FAN = 0;
+const int HEAT = 1;
+const int COLD = 2;
+const int AUTO = 3;
+const int DRY = 7;
 
-const String zoneNamesArray[] = {"UPSTAIRS", "MASTER", "MEL", "empty", "DOWNSTAIRS", "GEST1", "GEST2", "EDU"} ;
+
+const int numberOfZones = 8;
 
 const String ON = "1";
 const String OFF = "0";
 
 struct zonesStatusStruct{
   String zoneStatus[8];
+  String zoneNames[8];
 };
 
 controlInfo parseControlInfo(String input);

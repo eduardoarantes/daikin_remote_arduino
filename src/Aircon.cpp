@@ -1,6 +1,14 @@
 #include "Aircon.h"
 #include <Arduino.h>
+#include <WiFiClient.h>
+
+#if defined(ESP32)
 #include <HTTPClient.h>
+#elif defined(ESP8266)
+#include <ESP8266HTTPClient.h>
+#else
+  #error Unsupported board selection.
+#endif
 
 // temporary until we connect to wifi
 String powerStatus = OFF;
@@ -79,7 +87,6 @@ String urlDecode(String str)
    return encodedString;
 }
 
-
 void split(String inputString, char separator, String *outputArray, int size) {
   int count = 0;
   int lastIndex = 0;
@@ -96,8 +103,13 @@ void parseZoneOneOff(zonesStatusStruct &zonesStatus, String input){
   String zoneStatusArray[8];
   split(input, ';', zoneStatusArray, 8);
 
+  String zoneName[8];
+  split(input, ';', zoneName, 8);
+
+
   for (int i = 0; i < 8; i++) {
     zonesStatus.zoneStatus[i] = zoneStatusArray[i];
+    zonesStatus.zoneNames[i] = zoneName[i];
   }
 }
 
@@ -127,8 +139,9 @@ zonesStatusStruct readZoneStatus(){
 
   String serverPath =  "http://192.168.1.4/skyfi/aircon/get_zone_setting";
   
+  WiFiClient client;
   // Your Domain name with URL path or IP address with path
-  http.begin(serverPath.c_str());
+  http.begin(client, serverPath.c_str());
   
   // If you need Node-RED/server authentication, insert user and password below
   //http.setAuthorization("REPLACE_WITH_SERVER_USERNAME", "REPLACE_WITH_SERVER_PASSWORD");
@@ -170,7 +183,10 @@ String sendControlInfo(controlInfo v){
   
   String queryString = generateControlInfoString(v);
 
-  http.begin("http://192.168.0.100/post?"+queryString);
+  WiFiClient client;
+
+  http.begin(client, "http://192.168.0.100/post?"+queryString);
+
   http.addHeader("Content-Type", "text/plain");
   int httpCode = http.POST("");
 
@@ -192,8 +208,9 @@ controlInfo retrieveControlInfo(){
 
   String serverPath =  "http://192.168.1.4/skyfi/aircon/get_control_info";
   
+  WiFiClient client;
   // Your Domain name with URL path or IP address with path
-  http.begin(serverPath.c_str());
+  http.begin(client, serverPath.c_str());
   
   // If you need Node-RED/server authentication, insert user and password below
   //http.setAuthorization("REPLACE_WITH_SERVER_USERNAME", "REPLACE_WITH_SERVER_PASSWORD");
@@ -204,8 +221,8 @@ controlInfo retrieveControlInfo(){
   int httpResponseCode = http.GET();
   
   if (httpResponseCode>0) {
-    Serial.print("HTTP Response code: ");
-    Serial.println(httpResponseCode);
+    //Serial.print("HTTP Response code: ");
+    //Serial.println(httpResponseCode);
     String payload = http.getString();
     ci=parseControlInfo(payload);
   } else {
@@ -232,12 +249,15 @@ void setPowerStatus(controlInfo controlInfo, String status){
 
 void setZoneStatus(zonesStatusStruct zns){
   String zoneStatusString;
+  String zoneNamesString;
 
   for (int i = 0; i < numberOfZones; i++) {
     if (i > 0) {
-      zoneStatusString += ";";
+      zoneStatusString.concat(";");
+      zoneNamesString.concat(";");
     }
-    zoneStatusString += zns.zoneStatus[i];
+    zoneStatusString.concat(zns.zoneStatus[i]);
+    zoneNamesString.concat(zns.zoneStatus[i]);
   }
 
   HTTPClient http;
@@ -247,8 +267,9 @@ void setZoneStatus(zonesStatusStruct zns){
   String queryString = "zone_onoff="+zoneStatusString+"&zone_name="+zoneNamesString;
 
   Serial.println(queryString);
-  
-  http.begin("http://192.168.1.4/skyfi/aircon/set_zone_setting?" + queryString );
+  WiFiClient client;
+
+  http.begin(client, "http://192.168.1.4/skyfi/aircon/set_zone_setting?" + queryString );
   http.addHeader("Content-Type", "text/plain");
   int httpCode = http.POST("");
 
