@@ -29,9 +29,20 @@
 #include "Adafruit_GFX.h"
 #include "Adafruit_ILI9341.h"
 
+#if defined(WOKWI_SIMULATION)
 #define TFT_DC 25
 #define TFT_CS 5
-Adafruit_ILI9341 display = Adafruit_ILI9341(TFT_CS, TFT_DC);
+#else
+  #error PLEASE redifine pins
+#endif
+/*
+   #define TFT_CS    D2          // TFT CS  pin is connected to NodeMCU pin D2
+   #define TFT_RST   D3          // TFT RST pin is connected to NodeMCU pin D3
+   #define TFT_DC    D4   
+
+*/
+
+Adafruit_ILI9341 display = Adafruit_ILI9341(TFT_CS, TFT_DC, 3);
 
 DisplayController displayController = DisplayController(&display);
 
@@ -56,6 +67,14 @@ int myZoneId = 7;
 
 const int rgbPins[] = { 14, 12, 13};  // PWM pins for Red, Green and Blue colors of RGB led.
 
+zonesStatusStruct zS;
+controlInfo ci;
+
+void refresh_states_from_aircon(){
+    zS = readZoneStatus();
+    ci = readControlInfo();
+}
+
 void powerButtonChanged(const int buttonState){
   Serial.print("powerButtonChanged: ");
   Serial.println(buttonState);
@@ -64,36 +83,31 @@ void powerButtonChanged(const int buttonState){
   // if it's ON we need to switch the status of this zone
   // if it's OFF we need to switch all the other zones OFF and this one ON
   if(buttonState == 1){
-  
-    zonesStatusStruct zS = readZoneStatus();
-    
-    controlInfo ci = retrieveControlInfo();
-
-    if(ci.power == ON){
+    if(ci.power == POWER_ON){
       Serial.println("Aircon is ON"); 
-      if(zS.zoneStatus[myZoneId] == ON){
+      if(zS.zoneStatus[myZoneId] == POWER_ON){
         Serial.print("Setting OFF to zone:"); 
         Serial.println(myZoneId); 
-        zS.zoneStatus[myZoneId]=OFF;
+        zS.zoneStatus[myZoneId]=POWER_OFF;
         // if no other zone is active, shut it down
         if(!hasActiveZone(zS)){
           Serial.println("Turning Power OFF"); 
-          setPowerStatus(ci, OFF);
+          setPowerStatus(ci, POWER_OFF);
         }else{
           Serial.println("Keeping Power ON"); 
         }
       }else{
         Serial.print("Setting ON to zone:"); 
         Serial.println(myZoneId); 
-        zS.zoneStatus[myZoneId]=ON;
+        zS.zoneStatus[myZoneId]=POWER_ON;
       }
     }else{
       Serial.println("Aircon is off, resetting all zones");
       for(int i = 0; i < numberOfZones; i++)       {
-          zS.zoneStatus[i]=OFF;
+          zS.zoneStatus[i]=POWER_OFF;
       }
-      zS.zoneStatus[myZoneId]=ON;
-      setPowerStatus(ci, ON);
+      zS.zoneStatus[myZoneId]=POWER_ON;
+      setPowerStatus(ci, POWER_ON);
     }
     Serial.print("Setting My zone status to:");
     Serial.println(zS.zoneStatus[myZoneId]);
@@ -104,31 +118,31 @@ void powerButtonChanged(const int buttonState){
 
 void displayWifiStatus(){
   if(WiFi.status() == WL_CONNECTED) {
-    displayController.drawWifiIcon(ILI9341_GREEN);
+    displayController.displayWifiIcon(ILI9341_GREEN);
   }else{
-    displayController.drawWifiIcon(ILI9341_WHITE);
+    displayController.displayWifiIcon(ILI9341_WHITE);
   }
 }
-
 void setup() {
 
   Serial.begin(115200);
-  Serial.println("setup ");
+  Serial.println("setup 1");
+
+  displayController.startDisplay();
 
   WiFi.begin("Wokwi-GUEST", "", 6);
   while (WiFi.status() != WL_CONNECTED) {
     Serial.println("trying to connect to GUEST");
-    displayController.drawWifiIcon(ILI9341_ORANGE);
+    displayController.displayWifiIcon(ILI9341_ORANGE);
     delay(250);
-    displayController.drawWifiIcon(ILI9341_WHITE);
+    displayController.displayWifiIcon(ILI9341_WHITE);
   }
 
-  displayController.drawWifiIcon(ILI9341_GREEN);
+  displayController.displayWifiIcon(ILI9341_GREEN);
 
   delay_5s.start(5000, AsyncDelay::MILLIS);
   delay_60s.start(60000, AsyncDelay::MILLIS);
 
-  display.begin();
 
   // powerStatusButton.setCallback(powerButtonChanged);
   powerStatusButton.attachClick([]() {
@@ -143,9 +157,9 @@ void setup() {
     Serial.println("Long Pressed!");
   });
 
-  controlInfo ci = retrieveControlInfo();
+  controlInfo ci = readControlInfo();
 
-  displayController.displayAirconStatus(ci.power, ci.temperature);
+  displayController.displayAirconStatus(ci);
   displayWifiStatus();
 
   Serial.println("");
@@ -156,27 +170,44 @@ void setup() {
   configTime(UTC_OFFSET, UTC_OFFSET_DST, NTP_SERVER);
   struct tm timeinfo;
   if (!getLocalTime(&timeinfo)) {
-    Serial.println("Connection Err");
-    return;
+    Serial.println("Couldn't get the time from server");
   }
-  displayController.printLocalTime(timeinfo);
+  displayController.displayLocalTime(timeinfo);
+
+  zonesStatusStruct zns= readZoneStatus();
+
+  zns.zoneStatus[0] = POWER_OFF;
+
+  setZoneStatus(zns);
+
+  ci.temperature = "22";
+
+  ci.fanRate = "1";
+
+  ci.mode = MODE_COLD;
+
+  sendControlInfo(ci);
   
 }
-
 void loop() {
 
   powerStatusButton.tick();
   
   if (delay_5s.isExpired()) {
+    Serial.println("Fetching aircon status");
     displayWifiStatus();
-    controlInfo ci = retrieveControlInfo();
-    displayController.displayAirconStatus(ci.power, ci.temperature);
+    controlInfo ci = readControlInfo();
+    displayController.displayAirconStatus(ci);
+
+    zonesStatusStruct zns= readZoneStatus();
+    displayController.displayZoneStatus(zns);
+
     delay_5s.repeat(); // Count from when the delay expired, not now
         struct tm timeinfo;
     if (!getLocalTime(&timeinfo)) {
       Serial.println("Connection Err");
     }else{
-      displayController.printLocalTime(timeinfo);
+      displayController.displayLocalTime(timeinfo);
     }
 
   }

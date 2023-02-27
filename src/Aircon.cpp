@@ -1,17 +1,17 @@
-#include "Aircon.h"
-#include <Arduino.h>
-#include <WiFiClient.h>
+#include "aircon.h"
 
 #if defined(ESP32)
+#include <WiFiClient.h>
 #include <HTTPClient.h>
 #elif defined(ESP8266)
+#include <ESP8266WiFi.h>
 #include <ESP8266HTTPClient.h>
 #else
   #error Unsupported board selection.
 #endif
 
 // temporary until we connect to wifi
-String powerStatus = OFF;
+String powerStatus = POWER_OFF;
 
 controlInfo parseControlInfo(String input) {
   controlInfo result;
@@ -41,7 +41,7 @@ controlInfo parseControlInfo(String input) {
 }
 
 String generateControlInfoString(controlInfo v) {
-  String result = "pow=" + v.power + ",mode=" + v.mode + ",stemp=" + v.temperature + ",f_rate=" + v.fanRate + ",f_dir="+v.f_dir;
+  String result = "pow=" + v.power + "&mode=" + v.mode + "&stemp=" + v.temperature + "&f_rate=" + v.fanRate + "&f_dir="+v.f_dir;
   return result;
 }
 
@@ -65,20 +65,20 @@ String urlDecode(String str)
     char c;
     char code0;
     char code1;
-    for (int i =0; i < str.length(); i++){
+    for (unsigned int i =0; i < str.length(); i++){
         c=str.charAt(i);
       if (c == '+'){
-        encodedString+=' ';  
+        encodedString.concat(' ');  
       }else if (c == '%') {
         i++;
         code0=str.charAt(i);
         i++;
         code1=str.charAt(i);
         c = (h2int(code0) << 4) | h2int(code1);
-        encodedString+=c;
+        encodedString.concat(c);
       } else{
         
-        encodedString+=c;  
+        encodedString.concat(c);  
       }
       
       yield();
@@ -87,10 +87,10 @@ String urlDecode(String str)
    return encodedString;
 }
 
-void split(String inputString, char separator, String *outputArray, int size) {
+void split(String &inputString, char separator, String *outputArray, int size) {
   int count = 0;
   int lastIndex = 0;
-  for (int i = 0; i < inputString.length(); i++) {
+  for (unsigned int i = 0; i < inputString.length(); i++) {
     if (inputString[i] == separator) {
       outputArray[count++] = inputString.substring(lastIndex, i);
       lastIndex = i + 1;
@@ -99,26 +99,28 @@ void split(String inputString, char separator, String *outputArray, int size) {
   outputArray[count++] = inputString.substring(lastIndex);
 }
 
-void parseZoneOneOff(zonesStatusStruct &zonesStatus, String input){
+void parseZoneData(zonesStatusStruct &zonesStatus, String &zoneStatusString, String &zoneNamesString){
   String zoneStatusArray[8];
-  split(input, ';', zoneStatusArray, 8);
+  split(zoneStatusString, ';', zoneStatusArray, 8);
 
-  String zoneName[8];
-  split(input, ';', zoneName, 8);
+  String zoneNameArray[8];
+  split(zoneNamesString, ';', zoneNameArray, 8);
 
 
   for (int i = 0; i < 8; i++) {
     zonesStatus.zoneStatus[i] = zoneStatusArray[i];
-    zonesStatus.zoneNames[i] = zoneName[i];
+    zonesStatus.zoneNames[i] = zoneNameArray[i];
   }
 }
 
-void splitZoneStatus(zonesStatusStruct &zns, String inputString){
+void splitZoneData(zonesStatusStruct &zns, String &inputString){
   // Split the string into parts separated by commas
   int partCount = 3;
   String parts[partCount];
   split(inputString, ',', parts, partCount);
 
+  String zoneStatusString;
+  String zoneNamesString;
   // Loop through each part
   for (int i = 0; i < partCount; i++) {
     // Split each part into key/value pairs
@@ -127,10 +129,12 @@ void splitZoneStatus(zonesStatusStruct &zns, String inputString){
     String key = keyValue[0];
     String value = urlDecode(keyValue[1]);
     if(key=="zone_onoff"){
-      parseZoneOneOff(zns, value);
-      return;
+      zoneStatusString = value;
+    }else if(key=="zone_name"){
+      zoneNamesString = value;
     }
   }
+  parseZoneData(zns, zoneStatusString, zoneNamesString);
 }
 
 zonesStatusStruct readZoneStatus(){
@@ -155,7 +159,8 @@ zonesStatusStruct readZoneStatus(){
     Serial.print("HTTP Response code: ");
     Serial.println(httpResponseCode);
     String payload = http.getString();
-    splitZoneStatus(zns, urlDecode(payload));
+    String decodePayload = urlDecode(payload);
+    splitZoneData(zns, decodePayload);
   } else {
     Serial.print("Error code: ");
     Serial.println(httpResponseCode);
@@ -167,7 +172,7 @@ zonesStatusStruct readZoneStatus(){
 
 bool hasActiveZone(zonesStatusStruct zns){
   for(int i = 0; i < numberOfZones; i++) {
-    if(zns.zoneStatus[i] == ON){
+    if(zns.zoneStatus[i] == POWER_ON){
       Serial.println("Some active zones."); 
       return true;
     }
@@ -183,9 +188,15 @@ String sendControlInfo(controlInfo v){
   
   String queryString = generateControlInfoString(v);
 
+  Serial.println("Update control info:"+queryString);
+
   WiFiClient client;
 
-  http.begin(client, "http://192.168.0.100/post?"+queryString);
+  String url = "http://192.168.1.4/skyfi/aircon/set_control_info?";
+
+  url.concat(queryString);
+
+  http.begin(client, url);
 
   http.addHeader("Content-Type", "text/plain");
   int httpCode = http.POST("");
@@ -193,8 +204,9 @@ String sendControlInfo(controlInfo v){
   if (httpCode > 0) {
     Serial.println(httpCode);
     response = http.getString();
+    Serial.println("response: "+response);
   } else {
-    Serial.println("Error on HTTP request");
+    Serial.println("Error on HTTP request - http code:"+httpCode);
   }
 
   http.end();
@@ -202,7 +214,7 @@ String sendControlInfo(controlInfo v){
   return response;
 }
 
-controlInfo retrieveControlInfo(){
+controlInfo readControlInfo(){
 
   HTTPClient http;
 
@@ -257,7 +269,7 @@ void setZoneStatus(zonesStatusStruct zns){
       zoneNamesString.concat(";");
     }
     zoneStatusString.concat(zns.zoneStatus[i]);
-    zoneNamesString.concat(zns.zoneStatus[i]);
+    zoneNamesString.concat(zns.zoneNames[i]);
   }
 
   HTTPClient http;

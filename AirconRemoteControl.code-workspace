@@ -8,7 +8,12 @@
 	"settings": {
 		"files.associations": {
 			"string": "cpp",
-			"arduino.h": "c"
+			"arduino.h": "c",
+			"ui.h": "c",
+			"ui_helpers.h": "c",
+			"aircon_def.h": "c",
+			"aircon.h": "c",
+			"functional": "c"
 		}
 	}
 }

@@ -1,5 +1,6 @@
 #include <Adafruit_ILI9341.h>
 #include "DisplayController.h"
+#include "aircon.h"
 #include <FlickerFreePrint.h>
 #include <Fonts/FreeSans9pt7b.h>
 
@@ -17,6 +18,12 @@ const unsigned char wifiicon[] PROGMEM  ={ // wifi icon
   0x00, 0xff, 0x00, 0x7e, 0x00, 0x18,0x00, 0x00
 };
 
+//const int MODE_FAN = 0;
+//const int MODE_HEAT = 1;
+//const int MODE_COLD = 2;
+//const int MODE_AUTO = 3;
+//const int MODE_DRY = 7;
+
 FlickerFreePrint<Adafruit_ILI9341> _Data3(C_WHITE, C_BLACK);
 
 DisplayController::DisplayController(Adafruit_ILI9341 *tft){
@@ -24,19 +31,16 @@ DisplayController::DisplayController(Adafruit_ILI9341 *tft){
     _tft = tft;
 }
 
-void DisplayController::displayTemperature(int temperature, uint16_t color) {
-  _tft->setCursor(0, 0);
-  _tft->println("Temperature: " + String(temperature) + " C");
+void DisplayController::startDisplay(){
+  _tft->begin();
 }
 
-void DisplayController::drawWifiIcon(int color){
+void DisplayController::displayWifiIcon(int color){
   _tft->drawBitmap(1,1,wifiicon,8,8,color);
 }
 
-void DisplayController::printLocalTime(tm timeinfo) {
+void DisplayController::displayLocalTime(tm timeinfo) {
   int startPoint = 20;
-
-
   _tft->setCursor(startPoint, 0);
   byte h, m, s;
   char str[30];
@@ -46,25 +50,69 @@ void DisplayController::printLocalTime(tm timeinfo) {
   m = (thetime / 1000 - (3600 * h)) / 60;
   s = (thetime / 1000 - (3600 * h) - (m * 60));
   sprintf(str, "Time: %02d:%02d:%02d", h, m, s);
+
+  Serial.println(str);
+
   _Data3.print(str);
 
 }
 
-void DisplayController::displayAirconStatus(String power, String temperature){
+void DisplayController::displayAirconStatus(controlInfo ci){
     _tft->setFont(&FreeSans9pt7b);
-    _tft->setCursor(0, 50);
-    _tft->setTextColor(ILI9341_WHITE, ILI9341_BLACK);
-
+    _tft->setCursor(0, 30);
     _tft->setTextColor(ILI9341_GREEN, ILI9341_BLACK);
     _tft->print("Aircon status: ");
-    _tft->println(power);
+    _tft->println(ci.power);
     
-    _tft->setCursor(0, 100);
+    _tft->setCursor(0, 60);
     _tft->print("Aircon temp: ");
-    _tft->print(temperature);
+    _tft->print(ci.temperature);
     _tft->print((char)247); // degree symbol
     _tft->println("C");
+
+
+    _tft->setCursor(0, 90);
+    _tft->print("Aircon Mode: ");
     
-    // Serial.print("Aircon status: ");
-    //Serial.println(power);
+    int mode = ci.mode.toInt();
+    switch (mode)
+    {
+    case 0:
+      _tft->println("Fan");
+      break;
+    case 1:
+      _tft->println("Heat");
+      break;
+    case 2:
+      _tft->println("Cold");
+      break;
+    case 3:
+      _tft->println("Auto");
+      break;
+    case 7:
+      _tft->println("Dry");
+      break;
+    default:
+      _tft->println("Undefined");
+      break;
+    }
+    
+    
+}
+
+void DisplayController::displayZoneStatus(zonesStatusStruct zns){
+    _tft->setFont(&FreeSans9pt7b);
+    _tft->setTextColor(ILI9341_WHITE, ILI9341_BLACK);
+    int printZoneCount=0;
+    for (size_t i = 0; i < numberOfZones; i++)
+    {
+      if(zns.zoneNames[i]=="empty"){
+        continue;
+      }
+      _tft->setCursor(0, 110 + printZoneCount*20);
+      _tft->print(zns.zoneNames[i]+" : ");
+      _tft->println(zns.zoneStatus[i]);
+      printZoneCount++;
+    }
+    
 }
