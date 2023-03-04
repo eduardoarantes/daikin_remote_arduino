@@ -3,19 +3,17 @@
 
 #include <Adafruit_GFX.h>
 #include <Adafruit_ILI9341.h>
-#include "aircon.h"
+#include "AirconControls.h"
 
 class DisplayController {
   public:
-    DisplayController(Adafruit_ILI9341 *tft);
-    void startDisplay();
-    void displayWifiIcon(int color);
-    void displayLocalTime();
-    void displayAirconStatus(controlInfo ci);
-    void displayLocalTime(tm timeinfo);
-    void displayZoneStatus(zonesStatusStruct zns);
-  private:
-    Adafruit_ILI9341 *_tft;
+    virtual void startDisplay() = 0;
+    virtual void displayWifiIcon(int color) = 0;
+    virtual void displayAirconStatus(controlInfo ci) = 0;
+    virtual void displayLocalTime(tm timeinfo) = 0;
+    virtual void displayZoneStatus(zonesStatusStruct zns) = 0;
+    virtual void airconNotFound() = 0;
+
 };
 
 #endif
